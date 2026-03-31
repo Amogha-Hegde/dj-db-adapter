@@ -16,6 +16,9 @@ from dj_db_adapter import register_backend
 @pytest.fixture(autouse=True)
 def clean_environment():
     original_environ = os.environ.copy()
+    for key in list(os.environ):
+        if key.startswith("DJ_DB_"):
+            os.environ.pop(key, None)
     yield
     os.environ.clear()
     os.environ.update(original_environ)

@@ -1,61 +1,39 @@
 # dj-db-adapter
 
-A backend-aware Django database settings adapter inspired by `dj-database-url`.
+`dj-db-adapter` is a Django database configuration helper built around environment-first configuration.
 
-## Configuration Model
+It provides:
 
-Each database alias is configured through `DJ_DB_<ALIAS>_*`.
+- alias-based database configuration
+- backend-aware env var parsing
+- URL-based configuration
+- JSON and INI config file support
+- strict backend-specific setting validation
+- support for configuring multiple Django database aliases at once
 
-Configuration order:
+The library is designed for projects that want predictable, explicit database configuration without embedding parsing logic in Django settings files.
 
-1. `DJ_DB_<ALIAS>_BACKEND`
-2. `DJ_DB_<ALIAS>_ENGINE`
-3. `DJ_DB_<ALIAS>_URL`
-4. `DJ_DB_<ALIAS>_CONFIG_FILE`
-5. backend-specific env vars such as `DJ_DB_<ALIAS>_POSTGRES_*`
+## Installation
 
-`BACKEND` chooses the built-in backend and sets Django `ENGINE` automatically.
-
-`ENGINE` is only for explicit override.
+```bash
+pip install dj-db-adapter
+```
 
 ## Quick Start
 
 ```python
-from pathlib import Path
-
 from dj_db_adapter import databases
 
-BASE_DIR = Path(__file__).resolve().parent
-
-DATABASES = databases(base_dir=BASE_DIR)
+DATABASES = databases()
 ```
 
-If no database env vars are set, `databases()` returns `{}`.
+If no database-related env vars are set, `databases()` returns `{}`.
 
-## Public API
+## Configuration Model
 
-`databases(aliases=None, base_dir=None)`
+Each database alias is configured using the `DJ_DB_<ALIAS>_*` pattern.
 
-- Returns a Django `DATABASES` mapping.
-- If `aliases` is omitted, `DJ_DB_ALIASES` is used.
-- If no aliases or database env vars are set, it returns `{}`.
-
-`config(alias="default", base_dir=None)`
-
-- Returns one database config for the given alias.
-- Raises `ValueError` if that alias is not configured.
-
-`parse(url)`
-
-- Parses a single database URL.
-
-`register_backend(alias, engine, ...)`
-
-- Registers a custom backend.
-
-## Top-Level Env Vars
-
-These are the primary env vars per alias:
+Top-level variables:
 
 ```text
 DJ_DB_<ALIAS>_BACKEND=
@@ -64,23 +42,89 @@ DJ_DB_<ALIAS>_URL=
 DJ_DB_<ALIAS>_CONFIG_FILE=
 ```
 
-Examples:
+Resolution order:
+
+1. `BACKEND`
+2. `ENGINE`
+3. `URL`
+4. `CONFIG_FILE`
+5. backend-specific env vars
+
+`BACKEND` selects a built-in backend and resolves the Django engine automatically.
+
+`ENGINE` is only needed when you want to override the resolved engine explicitly.
+
+## Public API
+
+### `databases(aliases=None, base_dir=None)`
+
+Returns a Django `DATABASES` mapping.
+
+If `aliases` is omitted, the library reads:
+
+```text
+DJ_DB_ALIASES=default,analytics,archive
+```
+
+If `DJ_DB_ALIASES` is not set, no aliases are assumed.
+
+### `config(alias="default", base_dir=None)`
+
+Returns the config for one alias.
+
+If the alias is not configured, `ValueError` is raised.
+
+### `parse(url)`
+
+Parses a single database URL into a Django database config dictionary.
+
+### `register_backend(alias, engine, ...)`
+
+Registers a custom backend alias.
+
+## Multiple Aliases
+
+Example:
 
 ```bash
 export DJ_DB_ALIASES=default,analytics
+
 export DJ_DB_DEFAULT_BACKEND=postgres
-export DJ_DB_ANALYTICS_URL=mysql://report:secret@mysql.example.com:3306/warehouse
+export DJ_DB_DEFAULT_POSTGRES_NAME=app_db
+export DJ_DB_DEFAULT_POSTGRES_USER=app_user
+export DJ_DB_DEFAULT_POSTGRES_PASSWORD=change-me
+export DJ_DB_DEFAULT_POSTGRES_HOST=postgres.example.com
+export DJ_DB_DEFAULT_POSTGRES_PORT=5432
+
+export DJ_DB_ANALYTICS_URL=mysql://report:change-me@mysql.example.com:3306/analytics
 ```
 
-## JSON And INI Config Files
+```python
+from dj_db_adapter import databases
 
-Each alias can load config from:
+DATABASES = databases()
+```
+
+## URL-Based Configuration
+
+You can configure any alias with a database URL:
+
+```bash
+export DJ_DB_DEFAULT_URL=postgres://app_user:change-me@postgres.example.com:5432/app_db
+export DJ_DB_ANALYTICS_URL=mysql://report:change-me@mysql.example.com:3306/analytics
+```
+
+The URL scheme is mapped to the correct Django engine where supported.
+
+## Config File Support
+
+An alias can also be configured with:
 
 ```text
 DJ_DB_<ALIAS>_CONFIG_FILE=
 ```
 
-Supported file formats:
+Supported formats:
 
 - `.json`
 - `.ini`
@@ -91,10 +135,10 @@ Supported file formats:
 ```json
 {
   "BACKEND": "postgres",
-  "NAME": "main",
-  "USER": "app",
-  "PASSWORD": "secret",
-  "HOST": "db.example.com",
+  "NAME": "app_db",
+  "USER": "app_user",
+  "PASSWORD": "change-me",
+  "HOST": "postgres.example.com",
   "PORT": 5432
 }
 ```
@@ -104,41 +148,31 @@ Supported file formats:
 ```ini
 [database]
 backend = postgres
-name = archive
-user = archiver
-password = secret
-host = pg.example.com
+name = app_db
+user = app_user
+password = change-me
+host = postgres.example.com
 port = 5432
 
 [options]
-application_name = archive-worker
+application_name = django-app
 ```
 
-INI rules:
+INI mapping rules:
 
-- `[database]` maps to top-level database settings
+- `[database]` maps to the main database config
 - `[options]` maps to `OPTIONS`
 - `[test]` maps to `TEST`
 
-## Multiple Aliases
+## PostgreSQL Configuration
 
-```bash
-export DJ_DB_ALIASES=default,analytics,archive
+When:
 
-export DJ_DB_DEFAULT_BACKEND=postgres
-export DJ_DB_DEFAULT_POSTGRES_NAME=main
-export DJ_DB_DEFAULT_POSTGRES_USER=app
-export DJ_DB_DEFAULT_POSTGRES_PASSWORD=secret
-export DJ_DB_DEFAULT_POSTGRES_HOST=db.example.com
-export DJ_DB_DEFAULT_POSTGRES_PORT=5432
-
-export DJ_DB_ANALYTICS_URL=mysql://report:secret@mysql.example.com:3306/warehouse
-export DJ_DB_ARCHIVE_CONFIG_FILE=/etc/myapp/archive.ini
+```text
+DJ_DB_<ALIAS>_BACKEND=postgres
 ```
 
-## PostgreSQL Env Shape
-
-When `DJ_DB_<ALIAS>_BACKEND=postgres`, use:
+the library reads PostgreSQL-specific values from:
 
 ```text
 DJ_DB_<ALIAS>_POSTGRES_USER=
@@ -148,7 +182,7 @@ DJ_DB_<ALIAS>_POSTGRES_PORT=
 DJ_DB_<ALIAS>_POSTGRES_PASSWORD=
 ```
 
-Common Django connection flags for PostgreSQL use the same backend prefix:
+Supported common connection settings:
 
 ```text
 DJ_DB_<ALIAS>_POSTGRES_CONN_MAX_AGE=
@@ -158,33 +192,19 @@ DJ_DB_<ALIAS>_POSTGRES_ATOMIC_REQUESTS=
 DJ_DB_<ALIAS>_POSTGRES_DISABLE_SERVER_SIDE_CURSORS=
 ```
 
-Example:
+### PostgreSQL `OPTIONS`
 
-```bash
-export DJ_DB_DEFAULT_BACKEND=postgres
-export DJ_DB_DEFAULT_POSTGRES_USER=app
-export DJ_DB_DEFAULT_POSTGRES_NAME=main
-export DJ_DB_DEFAULT_POSTGRES_HOST=db.example.com
-export DJ_DB_DEFAULT_POSTGRES_PORT=5432
-export DJ_DB_DEFAULT_POSTGRES_PASSWORD=secret
-export DJ_DB_DEFAULT_POSTGRES_CONN_MAX_AGE=120
-export DJ_DB_DEFAULT_POSTGRES_CONN_HEALTH_CHECKS=true
-export DJ_DB_DEFAULT_POSTGRES_AUTOCOMMIT=false
-```
-
-## PostgreSQL Options
-
-PostgreSQL `OPTIONS` can be passed only through:
+Options are passed through env vars using:
 
 ```text
 DJ_DB_<ALIAS>_POSTGRES__OPTIONS__<OPTION_NAME>=
 ```
 
-Examples:
+Example:
 
 ```bash
 export DJ_DB_DEFAULT_POSTGRES__OPTIONS__APPLICATION_NAME=api
-export DJ_DB_DEFAULT_POSTGRES__OPTIONS__SEARCH_PATH=public,tenant
+export DJ_DB_DEFAULT_POSTGRES__OPTIONS__SEARCH_PATH=public
 ```
 
 Allowed PostgreSQL option names:
@@ -209,17 +229,19 @@ Allowed PostgreSQL option names:
 - `DateStyle`
 - `row_security`
 
-Unsupported PostgreSQL options raise `ValueError`.
+Unsupported option names raise `ValueError`.
 
-## Oracle Variants
+## Oracle Configuration
 
-When `DJ_DB_<ALIAS>_BACKEND=oracle`, the adapter supports:
+When:
 
-1. Standard host / port / name
-2. Easy connect through `NAME`
-3. Full descriptor generation through `PROTOCOL`, `HOST`, `PORT`, and `SERVICE_NAME`
+```text
+DJ_DB_<ALIAS>_BACKEND=oracle
+```
 
-### Standard
+the library supports three Oracle shapes.
+
+### Standard Host / Port / Name
 
 ```bash
 export DJ_DB_TENANT_BACKEND=oracle
@@ -236,10 +258,10 @@ export DJ_DB_TENANT_ORACLE_PASSWORD=tiger
 export DJ_DB_REPORTING_BACKEND=oracle
 export DJ_DB_REPORTING_ORACLE_NAME=dbhost.example.com:1521/ORCLPDB1
 export DJ_DB_REPORTING_ORACLE_USER=reporter
-export DJ_DB_REPORTING_ORACLE_PASSWORD=secret
+export DJ_DB_REPORTING_ORACLE_PASSWORD=change-me
 ```
 
-### Full Descriptor
+### Full Descriptor Generation
 
 ```bash
 export DJ_DB_WAREHOUSE_BACKEND=oracle
@@ -248,10 +270,10 @@ export DJ_DB_WAREHOUSE_ORACLE_HOST=oracle.example.com
 export DJ_DB_WAREHOUSE_ORACLE_PORT=1521
 export DJ_DB_WAREHOUSE_ORACLE_SERVICE_NAME=ORCLPDB1
 export DJ_DB_WAREHOUSE_ORACLE_USER=warehouse
-export DJ_DB_WAREHOUSE_ORACLE_PASSWORD=secret
+export DJ_DB_WAREHOUSE_ORACLE_PASSWORD=change-me
 ```
 
-For Oracle, `OPTIONS.threaded` defaults to `True`.
+For Oracle, `OPTIONS["threaded"]` defaults to `True`.
 
 ## Supported Built-In Backends
 
@@ -270,6 +292,8 @@ For Oracle, `OPTIONS.threaded` defaults to `True`.
 
 ## Custom Backends
 
+You can register a custom backend:
+
 ```python
 from dj_db_adapter import register_backend
 
@@ -282,9 +306,25 @@ register_backend(
 )
 ```
 
-Then configure it like:
+Then configure it like any built-in backend:
 
 ```bash
 export DJ_DB_CUSTOM_BACKEND=customdb
 export DJ_DB_CUSTOM_CUSTOMDB_NAME=mydb
 ```
+
+## Sample Environment File
+
+A complete example env file for all built-in backends is included in:
+
+`.env.sample`
+
+## Design Notes
+
+This library intentionally avoids implicit database defaults.
+
+- if no DB env vars are set, `databases()` returns `{}`
+- if an alias is requested but not configured, `config()` raises
+- backend-specific settings are validated instead of silently ignored
+
+That keeps Django database configuration explicit and easier to reason about across environments.
