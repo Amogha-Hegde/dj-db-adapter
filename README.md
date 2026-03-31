@@ -56,7 +56,7 @@ Resolution order:
 
 ## Public API
 
-### `databases(aliases=None, base_dir=None)`
+### `databases(aliases=None)`
 
 Returns a Django `DATABASES` mapping.
 
@@ -68,7 +68,7 @@ DJ_DB_ALIASES=default,analytics,archive
 
 If `DJ_DB_ALIASES` is not set, no aliases are assumed.
 
-### `config(alias="default", base_dir=None)`
+### `config(alias="default")`
 
 Returns the config for one alias.
 

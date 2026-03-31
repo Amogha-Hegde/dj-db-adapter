@@ -182,8 +182,6 @@ def parse(url: str) -> DatabaseConfig:
 
 def config(
     alias: str = "default",
-    *,
-    base_dir: str | Path | None = None,
 ) -> DatabaseConfig:
     file_config = _config_from_file(alias)
     url = _read_alias_setting(alias, "URL")
@@ -227,10 +225,8 @@ def config(
 
 def databases(
     aliases: list[str] | tuple[str, ...] | None = None,
-    *,
-    base_dir: str | Path | None = None,
 ) -> DatabasesConfig:
     if aliases is None:
         raw_aliases = read_setting("DJ_DB_ALIASES", "") or ""
         aliases = tuple(alias.strip() for alias in raw_aliases.split(",") if alias.strip())
-    return {alias: config(alias, base_dir=base_dir) for alias in aliases}
+    return {alias: config(alias) for alias in aliases}
