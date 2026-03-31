@@ -30,7 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATABASES = databases(base_dir=BASE_DIR)
 ```
 
-If `DJ_DB_ALIASES` is not set, the adapter uses `default`.
+If no database env vars are set, `databases()` returns `{}`.
 
 ## Public API
 
@@ -38,11 +38,12 @@ If `DJ_DB_ALIASES` is not set, the adapter uses `default`.
 
 - Returns a Django `DATABASES` mapping.
 - If `aliases` is omitted, `DJ_DB_ALIASES` is used.
+- If no aliases or database env vars are set, it returns `{}`.
 
 `config(alias="default", base_dir=None)`
 
 - Returns one database config for the given alias.
-- If the alias is `default` and nothing is configured, SQLite is used automatically.
+- Raises `ValueError` if that alias is not configured.
 
 `parse(url)`
 

@@ -60,14 +60,6 @@ def _coerce_common_settings(config: DatabaseConfig) -> DatabaseConfig:
     return normalized
 
 
-def _default_sqlite_config(base_dir: str | Path | None) -> DatabaseConfig:
-    base_path = Path(base_dir) if base_dir is not None else Path.cwd()
-    return {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": base_path / "db.sqlite3",
-    }
-
-
 def _normalize_loaded_file_config(loaded: dict[str, Any]) -> DatabaseConfig:
     normalized = {str(key).upper(): value for key, value in loaded.items()}
     if "URL" not in normalized and "url" in loaded:
@@ -123,12 +115,6 @@ def _resolve_engine(
         parsed = parse_database_url(url)
         engine = str(parsed["ENGINE"])
         return engine, resolve_backend(engine)
-
-    if alias == "default":
-        backend = resolve_backend("sqlite")
-        if backend is None:
-            raise ValueError("SQLite backend is not registered")
-        return backend.engine, backend
 
     raise ValueError(f"Alias '{alias}' requires BACKEND, ENGINE, URL, or CONFIG_FILE")
 
@@ -222,9 +208,6 @@ def config(
         source=merged,
     )
 
-    if alias == "default" and not file_config and not url and not backend_name and not engine_override:
-        merged.update(_default_sqlite_config(base_dir))
-
     if "URL" in merged:
         parsed = parse_database_url(str(merged.pop("URL")))
         parsed.update(merged)
@@ -249,6 +232,6 @@ def databases(
     base_dir: str | Path | None = None,
 ) -> DatabasesConfig:
     if aliases is None:
-        raw_aliases = read_setting("DJ_DB_ALIASES", "default") or "default"
+        raw_aliases = read_setting("DJ_DB_ALIASES", "") or ""
         aliases = tuple(alias.strip() for alias in raw_aliases.split(",") if alias.strip())
     return {alias: config(alias, base_dir=base_dir) for alias in aliases}

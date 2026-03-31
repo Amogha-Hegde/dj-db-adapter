@@ -44,11 +44,13 @@ def test_databases_support_multiple_aliases_from_urls() -> None:
     assert loaded["analytics"]["HOST"] == "mysql.example.com"
 
 
-def test_default_alias_falls_back_to_sqlite(tmp_path: Path) -> None:
-    loaded = config(base_dir=tmp_path)
+def test_databases_is_empty_when_no_database_env_is_set() -> None:
+    assert databases() == {}
 
-    assert loaded["ENGINE"] == "django.db.backends.sqlite3"
-    assert loaded["NAME"] == tmp_path / "db.sqlite3"
+
+def test_config_raises_when_alias_is_not_configured() -> None:
+    with pytest.raises(ValueError, match="requires BACKEND, ENGINE, URL, or CONFIG_FILE"):
+        config()
 
 
 def test_postgres_backend_specific_env_shape() -> None:
