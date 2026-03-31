@@ -9,6 +9,7 @@ BACKEND = BackendDefinition(
     engine="django_tidb",
     parser=standard_parser,
     aliases=("tidb", "django_tidb"),
+    env_prefix="TIDB",
     env_map=(
         ("NAME", "NAME"),
         ("USER", "USER"),

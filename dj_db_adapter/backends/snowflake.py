@@ -36,6 +36,7 @@ BACKEND = BackendDefinition(
     engine="django_snowflake",
     parser=snowflake_parser,
     aliases=("snowflake", "django_snowflake"),
+    env_prefix="SNOWFLAKE",
     env_map=(
         ("NAME", "NAME"),
         ("USER", "USER"),

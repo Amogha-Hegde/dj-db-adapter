@@ -9,6 +9,7 @@ BACKEND = BackendDefinition(
     engine="django.db.backends.mysql",
     parser=standard_parser,
     aliases=("mysql", "mariadb", "django.db.backends.mysql"),
+    env_prefix="MYSQL",
     env_map=(
         ("NAME", "NAME"),
         ("USER", "USER"),

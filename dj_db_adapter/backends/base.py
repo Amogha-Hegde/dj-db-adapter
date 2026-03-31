@@ -35,8 +35,10 @@ class BackendDefinition:
     engine: str
     parser: DatabaseParser
     aliases: tuple[str, ...]
+    env_prefix: str
     env_map: tuple[tuple[str, str], ...]
     settings: frozenset[str]
+    allowed_options: frozenset[str] = field(default_factory=frozenset)
     normalizer: DatabaseNormalizer | None = None
     default_name: str | Path | None = None
 

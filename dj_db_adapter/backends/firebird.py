@@ -9,6 +9,7 @@ BACKEND = BackendDefinition(
     engine="django_firebird",
     parser=standard_parser,
     aliases=("firebird", "django_firebird"),
+    env_prefix="FIREBIRD",
     env_map=(
         ("NAME", "NAME"),
         ("USER", "USER"),

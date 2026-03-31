@@ -24,6 +24,7 @@ BACKEND = BackendDefinition(
     engine="django_mongodb_backend",
     parser=mongodb_parser,
     aliases=("mongo", "mongodb", "django_mongodb_backend"),
+    env_prefix="MONGODB",
     env_map=(
         ("NAME", "NAME"),
         ("HOST", "HOST"),

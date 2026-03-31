@@ -33,6 +33,7 @@ BACKEND = BackendDefinition(
     engine="django.db.backends.oracle",
     parser=standard_parser,
     aliases=("oracle", "oracledb", "django.db.backends.oracle"),
+    env_prefix="ORACLE",
     env_map=(
         ("NAME", "NAME"),
         ("USER", "USER"),

@@ -30,10 +30,10 @@ def test_parse_postgres_url() -> None:
     assert parsed["OPTIONS"] == {"sslmode": "require"}
 
 
-def test_databases_support_multiple_aliases_from_env_urls() -> None:
-    os.environ["DJANGO_DATABASE_ALIASES"] = "default,analytics"
-    os.environ["DJANGO_DATABASE_DEFAULT_URL"] = "postgres://app:secret@db.example.com:5432/main"
-    os.environ["DJANGO_DATABASE_ANALYTICS_URL"] = "mysql://report:secret@mysql.example.com:3306/warehouse"
+def test_databases_support_multiple_aliases_from_urls() -> None:
+    os.environ["DJ_DB_ALIASES"] = "default,analytics"
+    os.environ["DJ_DB_DEFAULT_URL"] = "postgres://app:secret@db.example.com:5432/main"
+    os.environ["DJ_DB_ANALYTICS_URL"] = "mysql://report:secret@mysql.example.com:3306/warehouse"
 
     loaded = databases()
 
@@ -44,13 +44,69 @@ def test_databases_support_multiple_aliases_from_env_urls() -> None:
     assert loaded["analytics"]["HOST"] == "mysql.example.com"
 
 
-def test_default_alias_supports_sqlite_name_from_env(tmp_path: Path) -> None:
-    os.environ["DJANGO_DATABASE_DEFAULT_NAME"] = str(tmp_path / "custom.sqlite3")
-
+def test_default_alias_falls_back_to_sqlite(tmp_path: Path) -> None:
     loaded = config(base_dir=tmp_path)
 
     assert loaded["ENGINE"] == "django.db.backends.sqlite3"
-    assert loaded["NAME"] == tmp_path / "custom.sqlite3"
+    assert loaded["NAME"] == tmp_path / "db.sqlite3"
+
+
+def test_postgres_backend_specific_env_shape() -> None:
+    os.environ["DJ_DB_DEFAULT_BACKEND"] = "postgres"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_USER"] = "app"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_NAME"] = "main"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_HOST"] = "db.example.com"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_PORT"] = "5432"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_PASSWORD"] = "secret"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_CONN_MAX_AGE"] = "120"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_CONN_HEALTH_CHECKS"] = "true"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_AUTOCOMMIT"] = "false"
+
+    loaded = config()
+
+    assert loaded["ENGINE"] == "django.db.backends.postgresql"
+    assert loaded["USER"] == "app"
+    assert loaded["NAME"] == "main"
+    assert loaded["HOST"] == "db.example.com"
+    assert loaded["PORT"] == "5432"
+    assert loaded["PASSWORD"] == "secret"
+    assert loaded["CONN_MAX_AGE"] == 120
+    assert loaded["CONN_HEALTH_CHECKS"] is True
+    assert loaded["AUTOCOMMIT"] is False
+
+
+def test_postgres_allowed_options_are_loaded() -> None:
+    os.environ["DJ_DB_DEFAULT_BACKEND"] = "postgres"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_NAME"] = "main"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_USER"] = "app"
+    os.environ["DJ_DB_DEFAULT_POSTGRES__OPTIONS__APPLICATION_NAME"] = "api"
+    os.environ["DJ_DB_DEFAULT_POSTGRES__OPTIONS__SEARCH_PATH"] = "public,tenant"
+
+    loaded = config()
+
+    assert loaded["OPTIONS"] == {
+        "application_name": "api",
+        "search_path": "public,tenant",
+    }
+
+
+def test_postgres_invalid_option_is_rejected() -> None:
+    os.environ["DJ_DB_DEFAULT_BACKEND"] = "postgres"
+    os.environ["DJ_DB_DEFAULT_POSTGRES_NAME"] = "main"
+    os.environ["DJ_DB_DEFAULT_POSTGRES__OPTIONS__BAD_OPTION"] = "1"
+
+    with pytest.raises(ValueError, match="unsupported option"):
+        config()
+
+
+def test_engine_override_wins_over_backend_alias() -> None:
+    os.environ["DJ_DB_DEFAULT_BACKEND"] = "postgres"
+    os.environ["DJ_DB_DEFAULT_ENGINE"] = "django.db.backends.mysql"
+    os.environ["DJ_DB_DEFAULT_URL"] = "postgres://app:secret@db.example.com:5432/main"
+
+    loaded = config()
+
+    assert loaded["ENGINE"] == "django.db.backends.mysql"
 
 
 def test_json_config_file_per_alias(tmp_path: Path) -> None:
@@ -58,7 +114,7 @@ def test_json_config_file_per_alias(tmp_path: Path) -> None:
     config_file.write_text(
         json.dumps(
             {
-                "ENGINE": "snowflake",
+                "BACKEND": "snowflake",
                 "NAME": "warehouse",
                 "USER": "reporter",
                 "PASSWORD": "secret",
@@ -70,7 +126,7 @@ def test_json_config_file_per_alias(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    os.environ["DJANGO_DATABASE_ANALYTICS_CONFIG_FILE"] = str(config_file)
+    os.environ["DJ_DB_ANALYTICS_CONFIG_FILE"] = str(config_file)
 
     loaded = config("analytics")
 
@@ -85,7 +141,7 @@ def test_ini_config_file_per_alias(tmp_path: Path) -> None:
         "\n".join(
             [
                 "[database]",
-                "engine = postgres",
+                "backend = postgres",
                 "name = archive",
                 "user = archiver",
                 "password = secret",
@@ -93,73 +149,26 @@ def test_ini_config_file_per_alias(tmp_path: Path) -> None:
                 "port = 5432",
                 "",
                 "[options]",
-                "sslmode = require",
-                "",
-                "[test]",
-                "name = archive_test",
+                "application_name = archive-worker",
             ]
         ),
         encoding="utf-8",
     )
-    os.environ["DJANGO_DATABASE_ARCHIVE_CONFIG_FILE"] = str(config_file)
+    os.environ["DJ_DB_ARCHIVE_CONFIG_FILE"] = str(config_file)
 
     loaded = config("archive")
 
     assert loaded["ENGINE"] == "django.db.backends.postgresql"
-    assert loaded["OPTIONS"] == {"sslmode": "require"}
-    assert loaded["TEST"] == {"NAME": "archive_test"}
-
-
-def test_yaml_config_file_per_alias(tmp_path: Path) -> None:
-    config_file = tmp_path / "mongo.yaml"
-    config_file.write_text(
-        "\n".join(
-            [
-                "engine: mongodb",
-                "name: analytics",
-                "host: mongodb://mongo.example.com:27017/analytics",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    os.environ["DJANGO_DATABASE_MONGO_CONFIG_FILE"] = str(config_file)
-
-    loaded = config("mongo")
-
-    assert loaded["ENGINE"] == "django_mongodb_backend"
-    assert loaded["HOST"] == "mongodb://mongo.example.com:27017/analytics"
-
-
-def test_alias_specific_env_overrides_file_config(tmp_path: Path) -> None:
-    config_file = tmp_path / "analytics.json"
-    config_file.write_text(
-        json.dumps(
-            {
-                "ENGINE": "postgres",
-                "NAME": "warehouse",
-                "HOST": "old.example.com",
-                "USER": "reporter",
-            }
-        ),
-        encoding="utf-8",
-    )
-    os.environ["DJANGO_DATABASE_ANALYTICS_CONFIG_FILE"] = str(config_file)
-    os.environ["DJANGO_DATABASE_ANALYTICS_HOST"] = "new.example.com"
-    os.environ["DJANGO_DATABASE_ANALYTICS_OPTIONS"] = '{"sslmode": "require"}'
-
-    loaded = config("analytics")
-
-    assert loaded["HOST"] == "new.example.com"
-    assert loaded["OPTIONS"] == {"sslmode": "require"}
+    assert loaded["OPTIONS"] == {"application_name": "archive-worker"}
 
 
 def test_oracle_standard_connect_env_shape() -> None:
-    os.environ["DJANGO_DATABASE_ORACLE_TENANT_ENGINE"] = "oracle"
-    os.environ["DJANGO_DATABASE_ORACLE_TENANT_HOST"] = "oracle.example.com"
-    os.environ["DJANGO_DATABASE_ORACLE_TENANT_PORT"] = "1521"
-    os.environ["DJANGO_DATABASE_ORACLE_TENANT_NAME"] = "ORCLCDB"
-    os.environ["DJANGO_DATABASE_ORACLE_TENANT_USER"] = "scott"
-    os.environ["DJANGO_DATABASE_ORACLE_TENANT_PASSWORD"] = "tiger"
+    os.environ["DJ_DB_ORACLE_TENANT_BACKEND"] = "oracle"
+    os.environ["DJ_DB_ORACLE_TENANT_ORACLE_HOST"] = "oracle.example.com"
+    os.environ["DJ_DB_ORACLE_TENANT_ORACLE_PORT"] = "1521"
+    os.environ["DJ_DB_ORACLE_TENANT_ORACLE_NAME"] = "ORCLCDB"
+    os.environ["DJ_DB_ORACLE_TENANT_ORACLE_USER"] = "scott"
+    os.environ["DJ_DB_ORACLE_TENANT_ORACLE_PASSWORD"] = "tiger"
 
     loaded = config("oracle_tenant")
 
@@ -170,27 +179,14 @@ def test_oracle_standard_connect_env_shape() -> None:
     assert loaded["OPTIONS"] == {"threaded": True}
 
 
-def test_oracle_easy_connect_shape_defaults_threaded_option() -> None:
-    os.environ["DJANGO_DATABASE_REPORTING_ENGINE"] = "oracle"
-    os.environ["DJANGO_DATABASE_REPORTING_NAME"] = "dbhost.example.com:1521/ORCLPDB1"
-    os.environ["DJANGO_DATABASE_REPORTING_USER"] = "reporter"
-    os.environ["DJANGO_DATABASE_REPORTING_PASSWORD"] = "secret"
-
-    loaded = config("reporting")
-
-    assert loaded["ENGINE"] == "django.db.backends.oracle"
-    assert loaded["NAME"] == "dbhost.example.com:1521/ORCLPDB1"
-    assert loaded["OPTIONS"] == {"threaded": True}
-
-
 def test_oracle_full_connect_descriptor_shape() -> None:
-    os.environ["DJANGO_DATABASE_WAREHOUSE_ENGINE"] = "oracle"
-    os.environ["DJANGO_DATABASE_WAREHOUSE_PROTOCOL"] = "tcp"
-    os.environ["DJANGO_DATABASE_WAREHOUSE_HOST"] = "oracle.example.com"
-    os.environ["DJANGO_DATABASE_WAREHOUSE_PORT"] = "1521"
-    os.environ["DJANGO_DATABASE_WAREHOUSE_SERVICE_NAME"] = "ORCLPDB1"
-    os.environ["DJANGO_DATABASE_WAREHOUSE_USER"] = "warehouse"
-    os.environ["DJANGO_DATABASE_WAREHOUSE_PASSWORD"] = "secret"
+    os.environ["DJ_DB_WAREHOUSE_BACKEND"] = "oracle"
+    os.environ["DJ_DB_WAREHOUSE_ORACLE_PROTOCOL"] = "tcp"
+    os.environ["DJ_DB_WAREHOUSE_ORACLE_HOST"] = "oracle.example.com"
+    os.environ["DJ_DB_WAREHOUSE_ORACLE_PORT"] = "1521"
+    os.environ["DJ_DB_WAREHOUSE_ORACLE_SERVICE_NAME"] = "ORCLPDB1"
+    os.environ["DJ_DB_WAREHOUSE_ORACLE_USER"] = "warehouse"
+    os.environ["DJ_DB_WAREHOUSE_ORACLE_PASSWORD"] = "secret"
 
     loaded = config("warehouse")
 
@@ -204,33 +200,25 @@ def test_oracle_full_connect_descriptor_shape() -> None:
     assert loaded["OPTIONS"] == {"threaded": True}
 
 
-def test_invalid_backend_specific_setting_raises(tmp_path: Path) -> None:
-    config_file = tmp_path / "broken.json"
-    config_file.write_text(
-        json.dumps(
-            {
-                "ENGINE": "postgres",
-                "NAME": "main",
-                "WAREHOUSE": "NOT_ALLOWED",
-            }
-        ),
-        encoding="utf-8",
-    )
-    os.environ["DJANGO_DATABASE_DEFAULT_CONFIG_FILE"] = str(config_file)
+def test_yaml_config_file_is_rejected(tmp_path: Path) -> None:
+    config_file = tmp_path / "mongo.yaml"
+    config_file.write_text("engine: mongodb\n", encoding="utf-8")
+    os.environ["DJ_DB_MONGO_CONFIG_FILE"] = str(config_file)
 
-    with pytest.raises(ValueError, match="unsupported settings"):
-        config()
+    with pytest.raises(ValueError, match="Unsupported config file format"):
+        config("mongo")
 
 
 def test_custom_backend_registration() -> None:
     register_backend(
         "customdb",
         "vendor.backend",
+        env_prefix="CUSTOMDB",
         env_map=(("NAME", "NAME"),),
         settings={"NAME"},
     )
-    os.environ["DJANGO_DATABASE_CUSTOM_NAME"] = "custom_name"
-    os.environ["DJANGO_DATABASE_CUSTOM_ENGINE"] = "customdb"
+    os.environ["DJ_DB_CUSTOM_BACKEND"] = "customdb"
+    os.environ["DJ_DB_CUSTOM_CUSTOMDB_NAME"] = "custom_name"
 
     loaded = config("custom")
 

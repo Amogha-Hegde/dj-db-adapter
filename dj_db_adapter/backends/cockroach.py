@@ -9,6 +9,7 @@ BACKEND = BackendDefinition(
     engine="django_cockroachdb",
     parser=standard_parser,
     aliases=("cockroach", "cockroachdb", "django_cockroachdb"),
+    env_prefix="COCKROACH",
     env_map=(
         ("NAME", "NAME"),
         ("USER", "USER"),

@@ -9,6 +9,7 @@ BACKEND = BackendDefinition(
     engine="django.db.backends.postgresql",
     parser=standard_parser,
     aliases=("yugabyte", "yugabytedb"),
+    env_prefix="YUGABYTE",
     env_map=(
         ("NAME", "NAME"),
         ("USER", "USER"),

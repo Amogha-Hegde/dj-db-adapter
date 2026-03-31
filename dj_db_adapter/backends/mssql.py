@@ -9,6 +9,7 @@ BACKEND = BackendDefinition(
     engine="mssql",
     parser=standard_parser,
     aliases=("microsoft-sql-server", "mssql", "mssql-django"),
+    env_prefix="MSSQL",
     env_map=(
         ("NAME", "NAME"),
         ("USER", "USER"),

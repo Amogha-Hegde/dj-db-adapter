@@ -52,16 +52,20 @@ def register_backend(
     *,
     parser=standard_parser,
     normalizer=None,
+    env_prefix: str | None = None,
     env_map=(),
     settings=frozenset(),
+    allowed_options=frozenset(),
 ) -> None:
     _load_default_backends()
     definition = BackendDefinition(
         engine=engine,
         parser=parser,
         aliases=(alias.lower(), engine.lower()),
+        env_prefix=env_prefix or alias.upper().replace("-", "_"),
         env_map=tuple(env_map),
         settings=frozenset(COMMON_SETTINGS | set(settings)),
+        allowed_options=frozenset(allowed_options),
         normalizer=normalizer,
     )
     _BACKEND_REGISTRY[alias.lower()] = definition

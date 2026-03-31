@@ -25,6 +25,7 @@ BACKEND = BackendDefinition(
     engine="django_spanner",
     parser=spanner_parser,
     aliases=("google-cloud-spanner", "spanner", "django_spanner"),
+    env_prefix="SPANNER",
     env_map=(
         ("PROJECT", "PROJECT"),
         ("INSTANCE", "INSTANCE"),

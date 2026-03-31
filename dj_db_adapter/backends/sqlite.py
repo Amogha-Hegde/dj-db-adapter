@@ -9,6 +9,7 @@ BACKEND = BackendDefinition(
     engine="django.db.backends.sqlite3",
     parser=sqlite_parser,
     aliases=("sqlite", "sqlite3", "django.db.backends.sqlite3"),
+    env_prefix="SQLITE",
     env_map=(("NAME", "NAME"),),
     settings=base_settings("NAME"),
     normalizer=sqlite_normalizer,
