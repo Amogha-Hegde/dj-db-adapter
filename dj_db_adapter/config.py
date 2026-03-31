@@ -1,150 +1,206 @@
 from __future__ import annotations
 
+import json
 import os
-from json import loads as json_loads
 from pathlib import Path
 from typing import Any
 
 from dj_db_adapter.backends import normalize_database_config
 from dj_db_adapter.backends import parse_database_url
-from dj_db_adapter.backends import register_backend
+from dj_db_adapter.backends import resolve_backend
+from dj_db_adapter.backends.base import COMMON_ENV_MAP
+from dj_db_adapter.backends.base import bool_from_string
+from dj_db_adapter.file_formats import load_config_file
 
 DatabaseConfig = dict[str, Any]
-
-ENV_FIELD_MAP: tuple[tuple[str, str], ...] = (
-    ("DJANGO_DB_NAME", "NAME"),
-    ("DJANGO_DB_USER", "USER"),
-    ("DJANGO_DB_PASSWORD", "PASSWORD"),
-    ("DJANGO_DB_HOST", "HOST"),
-    ("DJANGO_DB_PORT", "PORT"),
-    ("DJANGO_DB_ACCOUNT", "ACCOUNT"),
-    ("DJANGO_DB_SCHEMA", "SCHEMA"),
-    ("DJANGO_DB_WAREHOUSE", "WAREHOUSE"),
-    ("DJANGO_DB_ROLE", "ROLE"),
-    ("DJANGO_DB_PROJECT", "PROJECT"),
-    ("DJANGO_DB_INSTANCE", "INSTANCE"),
-    ("DJANGO_DB_TIME_ZONE", "TIME_ZONE"),
-    ("DJANGO_DB_LOAD_BALANCE", "LOAD_BALANCE"),
-    ("DJANGO_DB_TOPOLOGY_KEYS", "TOPOLOGY_KEYS"),
-)
+DatabasesConfig = dict[str, DatabaseConfig]
 
 
 def read_setting(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
     if value is not None:
         return value
-
     file_path = os.getenv(f"{name}_FILE")
     if not file_path:
         return default
-
     return Path(file_path).read_text(encoding="utf-8").strip()
 
 
-def _read_bool(name: str) -> bool | None:
-    value = read_setting(name)
-    if value is None:
-        return None
-    return value.lower() in {"1", "true", "yes", "on"}
+def _alias_token(alias: str) -> str:
+    return alias.upper().replace("-", "_")
 
 
-def _read_json_object(name: str) -> dict[str, Any]:
-    raw_value = read_setting(name)
+def _alias_env_names(alias: str, suffix: str) -> list[str]:
+    token = _alias_token(alias)
+    names = [f"DJANGO_DATABASE_{token}_{suffix}"]
+    if alias == "default":
+        names.extend([f"DJANGO_DATABASE_{suffix}", suffix if suffix == "URL" else ""])
+    return [name for name in names if name]
+
+
+def _read_alias_setting(alias: str, suffix: str, default: str | None = None) -> str | None:
+    for name in _alias_env_names(alias, suffix):
+        value = read_setting(name)
+        if value is not None:
+            return value
+    return default
+
+
+def _read_alias_path(alias: str, suffix: str) -> str | None:
+    for name in _alias_env_names(alias, suffix):
+        direct = os.getenv(name)
+        if direct is not None:
+            return direct
+        from_file = os.getenv(f"{name}_FILE")
+        if from_file is not None:
+            return from_file
+    return None
+
+
+def _read_json(alias: str, suffix: str) -> dict[str, Any]:
+    raw_value = _read_alias_setting(alias, suffix)
     if not raw_value:
         return {}
+    loaded = json.loads(raw_value)
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{suffix} must be a JSON object")
+    return {str(key): value for key, value in loaded.items()}
 
-    loaded_value = json_loads(raw_value)
-    if not isinstance(loaded_value, dict):
-        raise ValueError(f"{name} must be a JSON object")
-    return {str(key): value for key, value in loaded_value.items()}
+
+def _coerce_common_settings(config: DatabaseConfig) -> DatabaseConfig:
+    normalized = dict(config)
+    if "CONN_MAX_AGE" in normalized:
+        normalized["CONN_MAX_AGE"] = int(normalized["CONN_MAX_AGE"])
+    for key in ("ATOMIC_REQUESTS", "AUTOCOMMIT", "CONN_HEALTH_CHECKS", "DISABLE_SERVER_SIDE_CURSORS"):
+        if key in normalized and isinstance(normalized[key], str):
+            normalized[key] = bool_from_string(normalized[key])
+    return normalized
 
 
-def parse(
-    url: str,
-    *,
-    conn_max_age: int | None = None,
-    conn_health_checks: bool | None = None,
-    options: dict[str, Any] | None = None,
-) -> DatabaseConfig:
-    config = parse_database_url(url)
-    if conn_max_age is not None:
-        config["CONN_MAX_AGE"] = conn_max_age
-    if conn_health_checks is not None:
-        config["CONN_HEALTH_CHECKS"] = conn_health_checks
+def _default_sqlite_config(base_dir: str | Path | None) -> DatabaseConfig:
+    base_path = Path(base_dir) if base_dir is not None else Path.cwd()
+    return {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": base_path / "db.sqlite3",
+    }
 
-    merged_options = dict(config.get("OPTIONS", {}))
+
+def _resolve_backend_name(source: DatabaseConfig, alias: str, default_engine: str | None = None) -> str:
+    engine = str(source.get("ENGINE") or default_engine or "")
+    if engine:
+        backend = resolve_backend(engine)
+        return backend.engine if backend is not None else engine
+    url = source.get("URL")
+    if isinstance(url, str) and url:
+        return str(parse_database_url(url)["ENGINE"])
+    if alias == "default":
+        return "django.db.backends.sqlite3"
+    raise ValueError(f"Alias '{alias}' requires ENGINE or URL")
+
+
+def _validate_settings(alias: str, engine: str, config: DatabaseConfig) -> None:
+    backend = resolve_backend(engine)
+    if backend is None:
+        return
+    invalid = sorted(set(config) - backend.settings)
+    if invalid:
+        raise ValueError(
+            f"Alias '{alias}' for engine '{engine}' received unsupported settings: {', '.join(invalid)}"
+        )
+
+
+def _config_from_file(alias: str) -> DatabaseConfig:
+    file_path = _read_alias_path(alias, "CONFIG")
+    if not file_path:
+        return {}
+    loaded = load_config_file(file_path)
+    if "url" in loaded and "URL" not in loaded:
+        loaded["URL"] = loaded.pop("url")
+    if "engine" in loaded and "ENGINE" not in loaded:
+        loaded["ENGINE"] = loaded.pop("engine")
+    return {str(key).upper(): value for key, value in loaded.items()}
+
+
+def _config_from_env(alias: str, engine: str | None) -> DatabaseConfig:
+    env_config: DatabaseConfig = {}
+    url = _read_alias_setting(alias, "URL")
+    if url:
+        env_config["URL"] = url
+
+    engine_value = _read_alias_setting(alias, "ENGINE", engine)
+    if engine_value:
+        backend = resolve_backend(engine_value)
+        env_config["ENGINE"] = backend.engine if backend is not None else engine_value
+
+    effective_engine = str(env_config.get("ENGINE") or engine or "")
+    if not effective_engine and alias == "default":
+        effective_engine = "django.db.backends.sqlite3"
+    backend = resolve_backend(effective_engine) if effective_engine else None
+
+    for suffix, setting_name in COMMON_ENV_MAP:
+        value = _read_alias_setting(alias, suffix)
+        if value is not None:
+            env_config[setting_name] = value
+
+    if backend is not None:
+        for suffix, setting_name in backend.env_map:
+            value = _read_alias_setting(alias, suffix)
+            if value is not None:
+                env_config[setting_name] = value
+
+    options = _read_json(alias, "OPTIONS")
     if options:
-        merged_options.update(options)
-    if merged_options:
-        config["OPTIONS"] = merged_options
-    else:
-        config.pop("OPTIONS", None)
+        env_config["OPTIONS"] = options
 
-    return normalize_database_config(config)
+    test_config = _read_json(alias, "TEST")
+    if test_config:
+        env_config["TEST"] = test_config
+
+    settings = _read_json(alias, "SETTINGS")
+    env_config.update(settings)
+    return env_config
+
+
+def parse(url: str) -> DatabaseConfig:
+    return normalize_database_config(parse_database_url(url))
 
 
 def config(
-    default: str | None = None,
+    alias: str = "default",
     *,
-    env: str = "DATABASE_URL",
     base_dir: str | Path | None = None,
 ) -> DatabaseConfig:
-    if base_dir is None:
-        default_sqlite_name: str | Path = Path("db.sqlite3")
-    else:
-        default_sqlite_name = Path(base_dir) / "db.sqlite3"
+    file_config = _config_from_file(alias)
+    file_engine = _resolve_backend_name(file_config, alias) if file_config else None
+    env_config = _config_from_env(alias, file_engine)
 
-    db_config: DatabaseConfig = {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": default_sqlite_name,
-    }
+    merged: DatabaseConfig = {}
+    if alias == "default" and not file_config and "URL" not in env_config and "ENGINE" not in env_config:
+        merged.update(_default_sqlite_config(base_dir))
 
-    database_url = read_setting(env, default)
-    if database_url:
-        db_config = parse_database_url(database_url)
+    if file_config:
+        merged.update(file_config)
+    if env_config:
+        merged.update(env_config)
 
-    engine = read_setting("DJANGO_DB_ENGINE")
-    if engine:
-        db_config["ENGINE"] = engine
+    if "URL" in merged:
+        parsed = parse_database_url(str(merged.pop("URL")))
+        parsed.update(merged)
+        merged = parsed
 
-    for env_name, setting_name in ENV_FIELD_MAP:
-        value = read_setting(env_name)
-        if value is not None:
-            db_config[setting_name] = value
+    engine = _resolve_backend_name(merged, alias, merged.get("ENGINE"))
+    merged["ENGINE"] = engine
+    _validate_settings(alias, engine, merged)
+    merged = _coerce_common_settings(merged)
+    return normalize_database_config(merged)
 
-    conn_max_age = read_setting("DJANGO_DB_CONN_MAX_AGE")
-    if conn_max_age is not None:
-        db_config["CONN_MAX_AGE"] = int(conn_max_age)
 
-    conn_health_checks = _read_bool("DJANGO_DB_CONN_HEALTH_CHECKS")
-    if conn_health_checks is not None:
-        db_config["CONN_HEALTH_CHECKS"] = conn_health_checks
-
-    disable_server_side_cursors = _read_bool("DJANGO_DB_DISABLE_SERVER_SIDE_CURSORS")
-    if disable_server_side_cursors is not None:
-        db_config["DISABLE_SERVER_SIDE_CURSORS"] = disable_server_side_cursors
-
-    atomic_requests = _read_bool("DJANGO_DB_ATOMIC_REQUESTS")
-    if atomic_requests is not None:
-        db_config["ATOMIC_REQUESTS"] = atomic_requests
-
-    autocommit = _read_bool("DJANGO_DB_AUTOCOMMIT")
-    if autocommit is not None:
-        db_config["AUTOCOMMIT"] = autocommit
-
-    options = dict(db_config.get("OPTIONS", {}))
-    options.update(_read_json_object("DJANGO_DB_OPTIONS"))
-    if options:
-        db_config["OPTIONS"] = options
-    else:
-        db_config.pop("OPTIONS", None)
-
-    test_config = dict(db_config.get("TEST", {}))
-    test_config.update(_read_json_object("DJANGO_DB_TEST"))
-    if test_config:
-        db_config["TEST"] = test_config
-    else:
-        db_config.pop("TEST", None)
-
-    db_config.update(_read_json_object("DJANGO_DB_SETTINGS"))
-    return normalize_database_config(db_config)
+def databases(
+    aliases: list[str] | tuple[str, ...] | None = None,
+    *,
+    base_dir: str | Path | None = None,
+) -> DatabasesConfig:
+    if aliases is None:
+        raw_aliases = read_setting("DJANGO_DATABASE_ALIASES", "default") or "default"
+        aliases = tuple(alias.strip() for alias in raw_aliases.split(",") if alias.strip())
+    return {alias: config(alias, base_dir=base_dir) for alias in aliases}
