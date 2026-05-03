@@ -1,7 +1,7 @@
 # dj-db-adapter
 
 [![Tests](https://github.com/Amogha-Hegde/dj-db-adapter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Amogha-Hegde/dj-db-adapter/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-pytest--cov-blue)](https://github.com/Amogha-Hegde/dj-db-adapter/blob/main/pytest.ini)
+[![Coverage](https://codecov.io/gh/Amogha-Hegde/dj-db-adapter/branch/main/graph/badge.svg)](https://codecov.io/gh/Amogha-Hegde/dj-db-adapter)
 [![PyPI version](https://img.shields.io/pypi/v/dj-db-adapter)](https://pypi.org/project/dj-db-adapter/)
 [![Python versions](https://img.shields.io/pypi/pyversions/dj-db-adapter)](https://pypi.org/project/dj-db-adapter/)
 [![PyPI downloads](https://static.pepy.tech/badge/dj-db-adapter)](https://pepy.tech/project/dj-db-adapter)
