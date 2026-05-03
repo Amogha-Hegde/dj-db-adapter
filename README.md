@@ -1,5 +1,11 @@
 # dj-db-adapter
 
+[![Tests](https://github.com/Amogha-Hegde/dj-db-adapter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Amogha-Hegde/dj-db-adapter/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-pytest--cov-blue)](https://github.com/Amogha-Hegde/dj-db-adapter/blob/main/pytest.ini)
+[![PyPI version](https://img.shields.io/pypi/v/dj-db-adapter)](https://pypi.org/project/dj-db-adapter/)
+[![Python versions](https://img.shields.io/pypi/pyversions/dj-db-adapter)](https://pypi.org/project/dj-db-adapter/)
+[![PyPI downloads](https://static.pepy.tech/badge/dj-db-adapter)](https://pepy.tech/project/dj-db-adapter)
+
 `dj-db-adapter` is a Django database configuration helper built around environment-first configuration.
 
 It provides:
@@ -312,6 +318,16 @@ Then configure it like any built-in backend:
 export DJ_DB_CUSTOM_BACKEND=customdb
 export DJ_DB_CUSTOM_CUSTOMDB_NAME=mydb
 ```
+
+## Testing
+
+Run the test suite with coverage enabled:
+
+```bash
+python -m pytest
+```
+
+Coverage is configured through `pytest-cov` in `pytest.ini` and reports against the `dj_db_adapter` package.
 
 ## Sample Environment File
 
